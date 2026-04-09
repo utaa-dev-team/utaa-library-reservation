@@ -5,14 +5,17 @@ import { ThemeProvider, CssBaseline } from '@mui/material'
 import App from './App.jsx'
 import theme from './theme' 
 import './i18n' 
+import { SessionProvider } from "next-auth/react"
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <App />
-      </ThemeProvider>
-    </BrowserRouter>
+    <SessionProvider basePath="/api/auth">
+      <BrowserRouter>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <App />
+        </ThemeProvider>
+      </BrowserRouter>
+    </SessionProvider>
   </React.StrictMode>,
 )

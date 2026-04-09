@@ -3,11 +3,12 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearchPostgres", "driverAdapters"]
+  previewFeatures = ["fullTextSearch"]
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ============================================
@@ -32,6 +33,15 @@ enum ReservationStatus {
   NO_SHOW
 
   @@map("reservation_status")
+}
+
+// YENİ EKLENEN ENUM: Katılımcı Onay Durumu
+enum ParticipantStatus {
+  PENDING     // Davet edildi, cevap bekleniyor
+  ACCEPTED    // Kabul etti
+  REJECTED    // Reddetti
+
+  @@map("participant_status")
 }
 
 enum PenaltyType {
@@ -105,16 +115,14 @@ model User {
   id            String    @id @default(uuid()) @db.Uuid
   studentNumber String?   @unique @map("student_number") @db.VarChar(20)
   email         String    @unique @db.VarChar(255)
-  emailVerified DateTime? @map("email_verified") @db.Timestamp(6)
-  password      String?   @db.VarChar(255) // Hash'lenmiş şifre (opsiyonel - OAuth için null olabilir)
   fullName      String    @map("full_name") @db.VarChar(255)
   phone         String?   @db.VarChar(20)
   department    String?   @db.VarChar(100)
-  image         String?   @db.Text // NextAuth için "image" olmalı
   avatarUrl     String?   @map("avatar_url") @db.Text
-
+  acceptedAgreementVersion String? @map("accepted_agreement_version") @db.VarChar(20)
+  
   // Rol ve yetki sistemi
-  role     UserRole @default(STUDENT)
+  role      UserRole @default(STUDENT)
   isActive Boolean  @default(true) @map("is_active")
 
   // Ceza sistemi
@@ -137,6 +145,7 @@ model User {
 
   // İlişkiler - Uygulama
   reservations           Reservation[]
+  reservationParticipations ReservationParticipant[] // YENİ: Davet edildiği rezervasyonlar
   penaltyHistory         PenaltyHistory[]
   checkedInReservations  Reservation[]  @relation("CheckedInBy")
   auditLogs              AuditLog[]
@@ -209,10 +218,12 @@ model Room {
   roomNumber  String   @unique @map("room_number") @db.VarChar(10)
   name        String   @db.VarChar(100)
   capacity    Int      @default(7)
-  floor       Int?
-  description String?  @db.Text
-  amenities   Json?    @db.JsonB // {"projector": true, "whiteboard": true, "computers": 4, "outlets": 8}
-  imageUrl    String?  @map("image_url") @db.VarChar(500)
+
+  // floor       Int?
+  // description String?  @db.Text
+  // amenities   Json?    @db.JsonB // {"projector": true, "whiteboard": true, "computers": 4, "outlets": 8}
+  // imageUrl    String?  @map("image_url") @db.VarChar(500)
+
   isActive    Boolean  @default(true) @map("is_active")
 
   // Timestamps
@@ -238,10 +249,8 @@ model Reservation {
   startTime       DateTime          @map("start_time") @db.Time(6)
   endTime         DateTime          @map("end_time") @db.Time(6)
 
-  // Katılımcı bilgileri
-  participantCount Int              @map("participant_count")
-  participants     Json?            @db.JsonB // [{"studentNumber": "123", "name": "Ahmet Yılmaz"}]
-  purpose          String?          @db.Text
+  // DÜZENLENDİ: participant_count ve participants jsonb buradan kaldırıldı
+  purpose         String?           @db.Text
 
   // Durum
   status ReservationStatus @default(PENDING)
@@ -263,10 +272,13 @@ model Reservation {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
 
   // İlişkiler
-  room           Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  checkedInBy    User?            @relation("CheckedInBy", fields: [checkedInById], references: [id])
+  room         Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkedInBy  User?            @relation("CheckedInBy", fields: [checkedInById], references: [id])
   penaltyHistory PenaltyHistory[]
+  
+  // YENİ EKLENEN: İlişkisel katılımcılar listesi
+  participants ReservationParticipant[]
 
   @@unique([userId, reservationDate, startTime], name: "unique_user_time")
   @@index([roomId, reservationDate])
@@ -274,6 +286,25 @@ model Reservation {
   @@index([status])
   @@index([reservationDate, startTime])
   @@map("reservations")
+}
+
+// ============================================
+// 3.1 YENİ TABLO: REZERVASYON KATILIMCILARI
+// ============================================
+model ReservationParticipant {
+  id            String   @id @default(uuid()) @db.Uuid
+  reservationId String   @map("reservation_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  
+  status        ParticipantStatus @default(PENDING)
+  joinedAt      DateTime? @map("joined_at") @db.Timestamp(6)
+
+  // İlişkiler
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id])
+
+  @@unique([reservationId, userId]) // Bir kişi aynı rezervasyona 2 kez eklenemez
+  @@map("reservation_participants")
 }
 
 // ============================================
@@ -414,6 +445,17 @@ model AdminAction {
   @@map("admin_actions")
 }
 
+model Agreement {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String   @db.VarChar(200) // Örn: "2026 Kütüphane Kullanım Sözleşmesi"
+  content     String   @db.Text         // Sözleşmenin tam metni
+  version     String   @unique @db.VarChar(20) // Örn: "v1.0", "v1.1" (Benzersiz olmalı)
+  isActive    Boolean  @default(false) @map("is_active") // Sadece 1 tanesi aktif olacak
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@map("agreements") // Veritabanındaki tablo adı
+}
+
 // ============================================
 // 10. DASHBOARD İSTATİSTİKLERİ (Dashboard Stats)
 // ============================================
@@ -484,22 +526,22 @@ model BulkOperation {
 // 12. DUYURULAR (Announcements)
 // ============================================
 model Announcement {
-  id       String               @id @default(uuid()) @db.Uuid
-  title    String               @db.VarChar(255)
-  content  String               @db.Text
-  priority AnnouncementPriority @default(MEDIUM)
+  id          String               @id @default(uuid()) @db.Uuid
+  title       Json                 // Çeviriler için JSONB (Örn: {"tr": "Sınav", "en": "Exam"})
+  content     Json                 // Çeviriler için JSONB
+  priority    AnnouncementPriority @default(MEDIUM)
 
-  isActive Boolean @default(true) @map("is_active")
-  isPinned Boolean @default(false) @map("is_pinned")
+  isActive    Boolean              @default(true) @map("is_active")
+  isPinned    Boolean              @default(false) @map("is_pinned")
 
-  targetRole UserRole? @map("target_role")
+  targetRole  UserRole?            @map("target_role")
 
-  publishedAt DateTime? @map("published_at") @db.Timestamp(6)
-  expiresAt   DateTime? @map("expires_at") @db.Timestamp(6)
+  publishedAt DateTime?            @map("published_at") @db.Timestamp(6)
+  expiresAt   DateTime?            @map("expires_at") @db.Timestamp(6)
 
-  createdBy String   @map("created_by") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+  createdBy   String               @map("created_by") @db.Uuid
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamp(6)
 
   @@index([isActive, isPinned])
   @@index([publishedAt])
@@ -595,4 +637,3 @@ model EmailQueue {
   @@index([createdAt])
   @@map("email_queue")
 }
-

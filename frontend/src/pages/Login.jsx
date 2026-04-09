@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react'; // Hook'lar eklendi
+import React from 'react';
 import { 
   Box, 
   Card, 
   CardContent, 
   Typography, 
   Button, 
-  Divider, 
   Avatar, 
   IconButton,
   Tooltip
@@ -13,29 +12,15 @@ import {
 import WindowIcon from '@mui/icons-material/Window'; 
 import LanguageIcon from '@mui/icons-material/Language';
 import { useTranslation } from 'react-i18next';
-import { alpha } from '@mui/material/styles'; // Logo parlaması için
-import axios from 'axios'; // Token çekmek için
+import { alpha } from '@mui/material/styles';
+// 👇 1. BU IMPORTU EKLEDİK
+import { signIn } from "next-auth/react"; 
 
 const Login = () => {
   const { t, i18n } = useTranslation();
   
-  // 1. CSRF Token'ı tutacak state
-  const [csrfToken, setCsrfToken] = useState('');
+  // NOT: CSRF Token ve Axios kodlarını sildik, signIn fonksiyonu bunu kendi halleder.
 
-  // 2. Sayfa açıldığında Backend'den güvenlik anahtarını al
-  useEffect(() => {
-    // Vite proxy ayarı sayesinde /api isteği localhost:3000'e gider
-    axios.get('/api/auth/csrf')
-      .then((response) => {
-        if(response.data && response.data.csrfToken) {
-           setCsrfToken(response.data.csrfToken);
-           console.log("Güvenlik anahtarı alındı.");
-        }
-      })
-      .catch((error) => console.error("CSRF Token alınamadı:", error));
-  }, []);
-
-  // Dil değiştirme fonksiyonu
   const toggleLanguage = () => {
     const newLang = i18n.language === 'tr' ? 'en' : 'tr';
     i18n.changeLanguage(newLang);
@@ -75,7 +60,7 @@ const Login = () => {
           width: '100%',
           borderRadius: 3,
           position: 'relative',
-          overflow: 'visible', // Logo yukarı taşsın diye visible
+          overflow: 'visible',
           border: '1px solid',
           borderColor: 'divider',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -112,7 +97,6 @@ const Login = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    // Mavi parlama efekti
                     boxShadow: (theme) => `0px 10px 25px ${alpha(theme.palette.primary.main, 0.25)}`,
                     zIndex: 10
                 }}
@@ -142,44 +126,34 @@ const Login = () => {
           {/* Aksiyon Bölümü */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
             
-            {/* --- GÜNCELLENEN POST FORM --- */}
-            <form 
-              action="http://localhost:3000/api/auth/signin/azure-ad" 
-              method="POST"
+            {/* 👇 2. FORM ETİKETİNİ KALDIRDIK VE BUTTON'A ONCLICK EKLEDİK */}
+            <Button
+                fullWidth
+                variant="contained"
+                size="large"
+                startIcon={<WindowIcon sx={{ fontSize: 28 }} />}
+                // 👇 KRİTİK DEĞİŞİKLİK BURADA:
+                onClick={() => signIn("azure-ad", { 
+                    callbackUrl: "http://localhost:5173/dashboard" 
+                })}
+                sx={{
+                    py: 1.5,
+                    textTransform: 'none',
+                    fontSize: '1rem',
+                    fontWeight: 700,
+                    boxShadow: '0 4px 14px 0 rgba(0, 118, 255, 0.39)',
+                    '&:hover': {
+                        transform: 'translateY(-1px)',
+                        boxShadow: '0 6px 20px rgba(0, 118, 255, 0.23)',
+                    },
+                    transition: 'all 0.2s'
+                }}
             >
-                {/* Dashboard'a dönüş linki */}
-                <input type="hidden" name="callbackUrl" value="http://localhost:5173/dashboard" />
-                
-                {/* Güvenlik Anahtarı (Token) */}
-                <input type="hidden" name="csrfToken" value={csrfToken} />
-                
-                <Button
-                    type="submit"
-                    fullWidth
-                    variant="contained"
-                    size="large"
-                    disabled={!csrfToken} // Token gelmeden butona basılmasın
-                    startIcon={<WindowIcon sx={{ fontSize: 28 }} />}
-                    sx={{
-                        py: 1.5,
-                        textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: 700,
-                        boxShadow: '0 4px 14px 0 rgba(0, 118, 255, 0.39)',
-                        '&:hover': {
-                            transform: 'translateY(-1px)',
-                            boxShadow: '0 6px 20px rgba(0, 118, 255, 0.23)',
-                        },
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    {t('signInMicrosoft')}
-                </Button>
-            </form>
+                {t('signInMicrosoft')}
+            </Button>
             {/* ----------------------------- */}
 
             <Box sx={{ textAlign: 'center' }}>
-
                 <Typography variant="caption" display="block" sx={{ color: 'text.secondary', mb: 1 }}>
                     {t('onlyInstitutional')}
                 </Typography>
